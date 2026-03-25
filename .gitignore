@@ -1,0 +1,28 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment & secrets
+.env
+.env.*
+*.secret
+
+# Logs
+*.log
+luacov.*
+luacov.stats.out
+luacov.report.out
+
+# LuaRocks
+*.rock
+*.rockspec.bak
+
+# Docker build artifacts
+*.tar
+*.tar.gz
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo

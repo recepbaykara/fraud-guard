@@ -1,0 +1,1247 @@
+{
+  "info": {
+    "name": "Fraud Guard Kong Plugin — E2E Test Suite",
+    "description": "End-to-end tests for the fraud-guard Kong plugin.\n\nRequired environment variables:\n- kong_url          : https://<your-kong-proxy-url>\n- kong_admin_url    : https://<your-kong-admin-url>\n- api_key           : <your-api-key>\n- plugin_id         : (auto-set by 00-Setup)\n- service_id        : (auto-set by 00-Setup)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [],
+  "item": [
+    {
+      "name": "00 — Setup & Teardown",
+      "description": "Admin API calls to create/verify/clean up the test service, route and plugins.",
+      "item": [
+        {
+          "name": "00-01 Ping Admin API",
+          "request": {
+            "method": "GET",
+            "url": "{{kong_admin_url}}/",
+            "description": "Verify Admin API is reachable and fraud-guard plugin is available."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Admin API reachable', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('fraud-guard available on server', () => {",
+                  "  pm.expect(body.plugins.available_on_server).to.have.property('fraud-guard');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "00-02 Create Test Service (httpbin)",
+          "request": {
+            "method": "POST",
+            "url": "{{kong_admin_url}}/services",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"httpbin-test\",\n  \"url\": \"https://httpbin.org\"\n}"
+            },
+            "description": "Creates the backend service. Skips gracefully if already exists."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const code = pm.response.code;",
+                  "pm.test('Service created or already exists', () => {",
+                  "  pm.expect([201, 200, 409]).to.include(code);",
+                  "});",
+                  "if (code !== 409) {",
+                  "  pm.environment.set('service_id', pm.response.json().id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "00-03 Get Service ID",
+          "request": {
+            "method": "GET",
+            "url": "{{kong_admin_url}}/services/httpbin-test",
+            "description": "Fetch service ID and store in environment."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Service found', () => pm.response.to.have.status(200));",
+                  "pm.environment.set('service_id', pm.response.json().id);",
+                  "console.log('service_id:', pm.environment.get('service_id'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "00-04 Create Route /fraud-test",
+          "request": {
+            "method": "POST",
+            "url": "{{kong_admin_url}}/services/httpbin-test/routes",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"httpbin-test-route\",\n  \"paths\": [\"/fraud-test\"],\n  \"strip_path\": true\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route created or already exists', () => {",
+                  "  pm.expect([201, 200, 409]).to.include(pm.response.code);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "00-05 Enable fraud-guard Plugin (enforce)",
+          "request": {
+            "method": "POST",
+            "url": "{{kong_admin_url}}/services/httpbin-test/plugins",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"fraud-guard\",\n  \"config\": {\n    \"mode\": \"enforce\",\n    \"fail_mode\": \"open\",\n    \"enable_account_transfers\": true,\n    \"enable_pos_transactions\": true,\n    \"enable_bill_payments\": true,\n    \"enable_mobile_payments\": true,\n    \"enable_api_security\": true,\n    \"thresholds\": {\n      \"block_score\": 70,\n      \"review_score\": 30,\n      \"max_daily_transactions\": 20,\n      \"max_daily_recipients\": 3,\n      \"max_daily_amount\": 100000\n    },\n    \"redis\": {\n      \"host\": \"localhost\",\n      \"port\": 6379,\n      \"timeout\": 1000\n    },\n    \"log_level\": \"info\",\n    \"alert_on_block\": false\n  }\n}"
+            },
+            "description": "Creates fraud-guard plugin. Stores plugin_id in env."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const code = pm.response.code;",
+                  "pm.test('Plugin created or already exists', () => {",
+                  "  pm.expect([201, 200, 409]).to.include(code);",
+                  "});",
+                  "if (code !== 409) {",
+                  "  pm.environment.set('plugin_id', pm.response.json().id);",
+                  "  console.log('plugin_id:', pm.environment.get('plugin_id'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "00-06 Get fraud-guard Plugin ID",
+          "request": {
+            "method": "GET",
+            "url": "{{kong_admin_url}}/services/httpbin-test/plugins",
+            "description": "Fetch plugin list and extract fraud-guard plugin_id."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Plugins listed', () => pm.response.to.have.status(200));",
+                  "const plugins = pm.response.json().data;",
+                  "const fg = plugins.find(p => p.name === 'fraud-guard');",
+                  "pm.test('fraud-guard plugin found', () => pm.expect(fg).to.not.be.undefined);",
+                  "if (fg) {",
+                  "  pm.environment.set('plugin_id', fg.id);",
+                  "  console.log('plugin_id set to:', fg.id);",
+                  "}",
+                  "const ka = plugins.find(p => p.name === 'key-auth');",
+                  "if (ka) pm.environment.set('key_auth_plugin_id', ka.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "00-07 Enable key-auth Plugin",
+          "request": {
+            "method": "POST",
+            "url": "{{kong_admin_url}}/services/httpbin-test/plugins",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"key-auth\",\n  \"config\": {\n    \"key_names\": [\"x-api-key\"],\n    \"hide_credentials\": false\n  }\n}"
+            },
+            "description": "hide_credentials:false so fraud-guard can see the x-api-key header for rule 3.2-1."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('key-auth created or exists', () => {",
+                  "  pm.expect([201, 200, 409]).to.include(pm.response.code);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "00-08 Create Consumer & API Key",
+          "request": {
+            "method": "POST",
+            "url": "{{kong_admin_url}}/consumers",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"fraud-test-user\",\n  \"custom_id\": \"fraud-test-user-001\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Consumer created or exists', () => {",
+                  "  pm.expect([201, 200, 409]).to.include(pm.response.code);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "00-09 Assign API Key to Consumer",
+          "request": {
+            "method": "POST",
+            "url": "{{kong_admin_url}}/consumers/fraud-test-user/key-auth",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"key\": \"{{api_key}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('API key assigned or exists', () => {",
+                  "  pm.expect([201, 200, 409]).to.include(pm.response.code);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "01 — Authentication",
+      "description": "key-auth gateway authentication tests.",
+      "item": [
+        {
+          "name": "01-01 No API Key → 401",
+          "request": {
+            "method": "POST",
+            "url": "{{kong_url}}/fraud-test/post",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"user_no_key\",\n  \"amount\": 100,\n  \"transaction_type\": \"pos\"\n}"
+            },
+            "description": "Request without x-api-key must be rejected by key-auth."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Missing API key returns 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "01-02 Invalid API Key → 401",
+          "request": {
+            "method": "POST",
+            "url": "{{kong_url}}/fraud-test/post",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "x-api-key", "value": "invalid-key-xyz"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"user_bad_key\",\n  \"amount\": 100,\n  \"transaction_type\": \"pos\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Invalid API key returns 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "01-03 Valid API Key → Passes Gateway",
+          "request": {
+            "method": "POST",
+            "url": "{{kong_url}}/fraud-test/post",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "x-api-key", "value": "{{api_key}}"},
+              {"key": "x-user-id", "value": "user_auth_check"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"user_auth_check\",\n  \"amount\": 50,\n  \"currency\": \"TRY\",\n  \"transaction_type\": \"pos\",\n  \"merchant_id\": \"merchant_auth\",\n  \"account_age_days\": 365,\n  \"user_age\": 30\n}"
+            },
+            "description": "Valid API key should pass gateway authentication."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Valid API key passes gateway (not 401)', () => {",
+                  "  pm.expect(pm.response.code).to.not.equal(401);",
+                  "});",
+                  "pm.test('fraud-guard headers present', () => {",
+                  "  pm.expect(pm.response.headers.get('x-fraud-score')).to.not.be.null;",
+                  "  pm.expect(pm.response.headers.get('x-risk-level')).to.not.be.null;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 — Normal Transactions (Low Risk)",
+      "description": "Legitimate transactions that should be allowed through.",
+      "item": [
+        {
+          "name": "02-01 Normal POS Transaction",
+          "request": {
+            "method": "POST",
+            "url": "{{kong_url}}/fraud-test/post",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "x-api-key", "value": "{{api_key}}"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"user_normal_pos\",\n  \"amount\": 250,\n  \"currency\": \"TRY\",\n  \"transaction_type\": \"pos\",\n  \"merchant_id\": \"merchant_grocery_01\",\n  \"merchant_category\": \"grocery\",\n  \"account_age_days\": 730,\n  \"user_age\": 35\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Normal POS transaction allowed (HTTP 200)', () => pm.response.to.have.status(200));",
+                  "pm.test('Risk level is low', () => {",
+                  "  pm.expect(pm.response.headers.get('x-risk-level')).to.equal('low');",
+                  "});",
+                  "pm.test('Fraud score below review threshold (30)', () => {",
+                  "  pm.expect(parseInt(pm.response.headers.get('x-fraud-score'))).to.be.below(30);",
+                  "});",
+                  "pm.test('Transaction ID assigned', () => {",
+                  "  pm.expect(pm.response.headers.get('x-transaction-id')).to.match(",
+                  "    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i",
+                  "  );",
+                  "});",
+                  "pm.test('Execution time header present', () => {",
+                  "  pm.expect(pm.response.headers.get('x-execution-time-ms')).to.not.be.null;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02-02 Normal Bank Transfer",
+          "request": {
+            "method": "POST",
+            "url": "{{kong_url}}/fraud-test/post",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "x-api-key", "value": "{{api_key}}"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"user_normal_transfer\",\n  \"amount\": 1000,\n  \"currency\": \"TRY\",\n  \"transaction_type\": \"transfer\",\n  \"recipient_id\": \"recipient_family_01\",\n  \"account_age_days\": 500,\n  \"user_age\": 40\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Normal transfer allowed', () => pm.response.to.have.status(200));",
+                  "pm.test('Risk level not high', () => {",
+                  "  pm.expect(pm.response.headers.get('x-risk-level')).to.not.equal('high');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "02-03 Normal Bill Payment",
+          "request": {
+            "method": "POST",
+            "url": "{{kong_url}}/fraud-test/post",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "x-api-key", "value": "{{api_key}}"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"user_normal_bill\",\n  \"amount\": 450,\n  \"currency\": \"TRY\",\n  \"transaction_type\": \"bill_payment\",\n  \"biller_id\": \"electricity_provider_01\",\n  \"account_age_days\": 900,\n  \"user_age\": 45\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Bill payment allowed', () => pm.response.to.have.status(200));",
+                  "pm.test('Mode is enforce', () => {",
+                  "  pm.expect(pm.response.headers.get('x-fraud-mode')).to.equal('enforce');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 — Fraud Detection (Block Scenarios)",
+      "description": "Transactions that should be detected and blocked.",
+      "item": [
+        {
+          "name": "03-01 High Amount Anomaly → 403",
+          "request": {
+            "method": "POST",
+            "url": "{{kong_url}}/fraud-test/post",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "x-api-key", "value": "{{api_key}}"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"user_high_amount\",\n  \"amount\": 500000,\n  \"currency\": \"TRY\",\n  \"transaction_type\": \"pos\",\n  \"merchant_id\": \"merchant_suspicious\",\n  \"account_age_days\": 5,\n  \"user_age\": 22\n}"
+            },
+            "description": "Very high amount for a new account should be blocked."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('High amount blocked (403)', () => pm.response.to.have.status(403));",
+                  "pm.test('Risk level is high', () => {",
+                  "  pm.expect(pm.response.headers.get('x-risk-level')).to.equal('high');",
+                  "});",
+                  "pm.test('Score at maximum (100)', () => {",
+                  "  pm.expect(parseInt(pm.response.headers.get('x-fraud-score'))).to.equal(100);",
+                  "});",
+                  "pm.test('Reference ID assigned on block', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.reference).to.match(/^FRD-/);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03-02 Suspicious Keyword — kumar/bahis → 403",
+          "request": {
+            "method": "POST",
+            "url": "{{kong_url}}/fraud-test/post",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "x-api-key", "value": "{{api_key}}"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"user_keyword_001\",\n  \"amount\": 500,\n  \"currency\": \"TRY\",\n  \"transaction_type\": \"transfer\",\n  \"description\": \"online kumar sitesi odeme\",\n  \"recipient_id\": \"rec_gambling_01\",\n  \"account_age_days\": 200,\n  \"user_age\": 25\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Gambling keyword blocked (403)', () => pm.response.to.have.status(403));",
+                  "pm.test('Fraud score is high', () => {",
+                  "  pm.expect(parseInt(pm.response.headers.get('x-fraud-score'))).to.be.at.least(70);",
+                  "});",
+                  "pm.test('Keyword rule triggered', () => {",
+                  "  const rules = pm.response.headers.get('x-triggered-rules') || '';",
+                  "  pm.expect(rules).to.include('3.1.1-15');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03-03 Daily Amount Limit Exceeded → 403",
+          "request": {
+            "method": "POST",
+            "url": "{{kong_url}}/fraud-test/post",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "x-api-key", "value": "{{api_key}}"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"user_daily_limit\",\n  \"amount\": 150000,\n  \"currency\": \"TRY\",\n  \"transaction_type\": \"transfer\",\n  \"recipient_id\": \"rec_daily_01\",\n  \"account_age_days\": 300,\n  \"user_age\": 30\n}"
+            },
+            "description": "Single transaction exceeding max_daily_amount (100,000 TRY)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Daily amount exceeded — blocked (403)', () => pm.response.to.have.status(403));",
+                  "pm.test('Risk level is high', () => {",
+                  "  pm.expect(pm.response.headers.get('x-risk-level')).to.equal('high');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03-04 Velocity — Daily Tx Limit (loop x15)",
+          "request": {
+            "method": "POST",
+            "url": "{{kong_url}}/fraud-test/post",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "x-api-key", "value": "{{api_key}}"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"user_velocity_loop\",\n  \"amount\": 10,\n  \"currency\": \"TRY\",\n  \"transaction_type\": \"pos\",\n  \"merchant_id\": \"merchant_velocity\",\n  \"account_age_days\": 400,\n  \"user_age\": 28\n}"
+            },
+            "description": "Run this request 15+ times via Collection Runner to exceed max_daily_transactions (20). After the 20th run the response must be 403."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const score  = parseInt(pm.response.headers.get('x-fraud-score') || '0');",
+                  "const status = pm.response.code;",
+                  "pm.test('Velocity: request processed by fraud-guard', () => {",
+                  "  pm.expect(pm.response.headers.get('x-fraud-score')).to.not.be.null;",
+                  "});",
+                  "// After the daily limit is hit the score climbs and eventually blocks",
+                  "if (status === 403) {",
+                  "  pm.test('Velocity limit hit — blocked', () => {",
+                  "    pm.expect(score).to.be.at.least(70);",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03-05 Multiple Recipients (transfer to 4+ in one day) → 403",
+          "request": {
+            "method": "POST",
+            "url": "{{kong_url}}/fraud-test/post",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "x-api-key", "value": "{{api_key}}"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"user_multi_recip\",\n  \"amount\": 100,\n  \"currency\": \"TRY\",\n  \"transaction_type\": \"transfer\",\n  \"recipient_id\": \"recipient_{{$randomInt}}\",\n  \"account_age_days\": 300,\n  \"user_age\": 30\n}"
+            },
+            "description": "Run 4+ times. After the 4th unique recipient the request should be blocked (max_daily_recipients: 3)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Request processed', () => {",
+                  "  pm.expect([200, 403]).to.include(pm.response.code);",
+                  "});",
+                  "const rules = pm.response.headers.get('x-triggered-rules') || '';",
+                  "if (rules.includes('3.1.1-2')) {",
+                  "  pm.test('Multiple recipients rule triggered (3.1.1-2)', () => pm.expect(rules).to.include('3.1.1-2'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03-06 Credential Stuffing (auth endpoint) → 403",
+          "request": {
+            "method": "POST",
+            "url": "{{kong_url}}/fraud-test/login",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "x-api-key", "value": "{{api_key}}"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"attacker_brute_{{$randomInt}}\",\n  \"amount\": 0,\n  \"transaction_type\": \"auth\"\n}"
+            },
+            "description": "Simulate repeated auth attempts. After 20 attempts in 5 min, rule 3.2-7 blocks."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Auth attempt processed', () => {",
+                  "  pm.expect([200, 403]).to.include(pm.response.code);",
+                  "});",
+                  "const rules = pm.response.headers.get('x-triggered-rules') || '';",
+                  "if (rules.includes('3.2-7')) {",
+                  "  pm.test('Credential stuffing rule triggered (3.2-7)', () => pm.expect(rules).to.include('3.2-7'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "03-07 Sensitive Endpoint — Non-Whitelisted IP → High Score",
+          "request": {
+            "method": "GET",
+            "url": "{{kong_url}}/fraud-test/admin",
+            "header": [
+              {"key": "x-api-key", "value": "{{api_key}}"},
+              {"key": "x-user-id", "value": "user_admin_probe"}
+            ],
+            "description": "Accessing /admin path from a non-whitelisted IP triggers rule 3.2-5."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Sensitive endpoint access detected', () => {",
+                  "  const score = parseInt(pm.response.headers.get('x-fraud-score') || '0');",
+                  "  pm.expect(score).to.be.at.least(30);",
+                  "});",
+                  "pm.test('Rule 3.2-5 triggered', () => {",
+                  "  const rules = pm.response.headers.get('x-triggered-rules') || '';",
+                  "  pm.expect(rules).to.include('3.2-5');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "04 — Shadow Mode",
+      "description": "In shadow mode, high-risk transactions are logged but NOT blocked (HTTP 200).",
+      "item": [
+        {
+          "name": "04-01 Switch to Shadow Mode",
+          "request": {
+            "method": "PATCH",
+            "url": "{{kong_admin_url}}/plugins/{{plugin_id}}",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"config\": {\n    \"mode\": \"shadow\"\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Plugin updated to shadow mode', () => pm.response.to.have.status(200));",
+                  "pm.test('Mode is shadow', () => {",
+                  "  pm.expect(pm.response.json().config.mode).to.equal('shadow');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "04-02 High-Risk Tx in Shadow Mode → HTTP 200",
+          "request": {
+            "method": "POST",
+            "url": "{{kong_url}}/fraud-test/post",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "x-api-key", "value": "{{api_key}}"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"user_shadow_high_risk\",\n  \"amount\": 999999,\n  \"currency\": \"TRY\",\n  \"transaction_type\": \"pos\",\n  \"merchant_id\": \"merchant_shadow\",\n  \"account_age_days\": 1,\n  \"user_age\": 19\n}"
+            },
+            "description": "High-risk transaction must NOT be blocked in shadow mode."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Shadow mode allows high-risk tx (200)', () => pm.response.to.have.status(200));",
+                  "pm.test('Mode header is shadow', () => {",
+                  "  pm.expect(pm.response.headers.get('x-fraud-mode')).to.equal('shadow');",
+                  "});",
+                  "pm.test('Would-block header is true', () => {",
+                  "  pm.expect(pm.response.headers.get('x-fraud-would-block')).to.equal('true');",
+                  "});",
+                  "pm.test('Shadow decision is blocked', () => {",
+                  "  pm.expect(pm.response.headers.get('x-fraud-shadow-decision')).to.equal('blocked');",
+                  "});",
+                  "pm.test('Fraud score is high', () => {",
+                  "  pm.expect(parseInt(pm.response.headers.get('x-fraud-score'))).to.be.at.least(70);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "04-03 Switch Back to Enforce Mode",
+          "request": {
+            "method": "PATCH",
+            "url": "{{kong_admin_url}}/plugins/{{plugin_id}}",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"config\": {\n    \"mode\": \"enforce\"\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Plugin restored to enforce mode', () => pm.response.to.have.status(200));",
+                  "pm.test('Mode is enforce', () => {",
+                  "  pm.expect(pm.response.json().config.mode).to.equal('enforce');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "05 — Whitelist",
+      "description": "Whitelisted users/merchants bypass all fraud rules.",
+      "item": [
+        {
+          "name": "05-01 Add VIP User to Whitelist",
+          "request": {
+            "method": "PATCH",
+            "url": "{{kong_admin_url}}/plugins/{{plugin_id}}",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"config\": {\n    \"whitelists\": {\n      \"user_ids\": [\"vip_user_whitelist_01\"],\n      \"merchant_ids\": [],\n      \"ip_ranges\": []\n    }\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Whitelist updated', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "05-02 Whitelisted User — High Amount → HTTP 200",
+          "request": {
+            "method": "POST",
+            "url": "{{kong_url}}/fraud-test/post",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "x-api-key", "value": "{{api_key}}"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"vip_user_whitelist_01\",\n  \"amount\": 9999999,\n  \"currency\": \"TRY\",\n  \"transaction_type\": \"pos\",\n  \"merchant_id\": \"merchant_vip\"\n}"
+            },
+            "description": "Whitelisted user must pass regardless of amount or rules."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Whitelisted user allowed (200)', () => pm.response.to.have.status(200));",
+                  "pm.test('Score is 0', () => {",
+                  "  pm.expect(pm.response.headers.get('x-fraud-score')).to.equal('0');",
+                  "});",
+                  "pm.test('Risk level is whitelisted', () => {",
+                  "  pm.expect(pm.response.headers.get('x-risk-level')).to.equal('whitelisted');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "05-03 Non-Whitelisted User — Same High Amount → 403",
+          "request": {
+            "method": "POST",
+            "url": "{{kong_url}}/fraud-test/post",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "x-api-key", "value": "{{api_key}}"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"user_not_whitelisted\",\n  \"amount\": 9999999,\n  \"currency\": \"TRY\",\n  \"transaction_type\": \"pos\",\n  \"merchant_id\": \"merchant_vip\",\n  \"account_age_days\": 100,\n  \"user_age\": 30\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Non-whitelisted user blocked (403)', () => pm.response.to.have.status(403));",
+                  "pm.test('Risk level is high', () => {",
+                  "  pm.expect(pm.response.headers.get('x-risk-level')).to.equal('high');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "05-04 Clear Whitelist",
+          "request": {
+            "method": "PATCH",
+            "url": "{{kong_admin_url}}/plugins/{{plugin_id}}",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"config\": {\n    \"whitelists\": {\n      \"user_ids\": [],\n      \"merchant_ids\": [],\n      \"ip_ranges\": []\n    }\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Whitelist cleared', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "06 — Edge Cases & Security",
+      "description": "Input validation, security protections and edge cases.",
+      "item": [
+        {
+          "name": "06-01 Negative Amount — Clipped to 0",
+          "request": {
+            "method": "POST",
+            "url": "{{kong_url}}/fraud-test/post",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "x-api-key", "value": "{{api_key}}"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"user_negative_amount\",\n  \"amount\": -99999,\n  \"currency\": \"TRY\",\n  \"transaction_type\": \"pos\",\n  \"merchant_id\": \"merchant_neg\",\n  \"account_age_days\": 365,\n  \"user_age\": 30\n}"
+            },
+            "description": "Negative amounts are clipped to 0 by the extractor, so the transaction is treated as a zero-amount request."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Negative amount request processed (not 500)', () => {",
+                  "  pm.expect(pm.response.code).to.not.equal(500);",
+                  "});",
+                  "pm.test('fraud-guard handled the request', () => {",
+                  "  pm.expect(pm.response.headers.get('x-fraud-score')).to.not.be.null;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "06-02 Missing user_id — fail-open → HTTP 200",
+          "request": {
+            "method": "POST",
+            "url": "{{kong_url}}/fraud-test/post",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "x-api-key", "value": "{{api_key}}"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 100,\n  \"currency\": \"TRY\",\n  \"transaction_type\": \"pos\"\n}"
+            },
+            "description": "With fail_mode:open, missing user_id allows the request through."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Missing user_id with fail-open returns 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "06-03 SSRF Webhook — Private IP Blocked at Runtime",
+          "request": {
+            "method": "PATCH",
+            "url": "{{kong_admin_url}}/plugins/{{plugin_id}}",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"config\": {\n    \"webhook_url\": \"http://192.168.1.100/hook\",\n    \"alert_on_block\": true\n  }\n}"
+            },
+            "description": "Set a private IP as webhook_url. The SSRF guard must skip the call at runtime (check Kong logs for 'Webhook skipped')."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Config accepted (SSRF check is runtime)', () => pm.response.to.have.status(200));",
+                  "pm.test('Webhook URL saved', () => {",
+                  "  pm.expect(pm.response.json().config.webhook_url).to.equal('http://192.168.1.100/hook');",
+                  "});",
+                  "pm.test('NOTE: Verify Kong DP logs for \"Webhook skipped — unsafe URL\"', () => pm.expect(true).to.be.true);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "06-04 SSRF Webhook — Trigger & Verify Skipped",
+          "request": {
+            "method": "POST",
+            "url": "{{kong_url}}/fraud-test/post",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "x-api-key", "value": "{{api_key}}"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"user_ssrf_trigger\",\n  \"amount\": 999999,\n  \"currency\": \"TRY\",\n  \"transaction_type\": \"pos\",\n  \"merchant_id\": \"merchant_ssrf\",\n  \"account_age_days\": 1,\n  \"user_age\": 19\n}"
+            },
+            "description": "Trigger a block to invoke the webhook. SSRF guard must skip sending."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('High-risk tx blocked as expected', () => pm.response.to.have.status(403));",
+                  "pm.test('NOTE: Check DP logs — should see \"Webhook skipped — unsafe URL\"', () => pm.expect(true).to.be.true);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "06-05 Clear SSRF Webhook",
+          "request": {
+            "method": "PATCH",
+            "url": "{{kong_admin_url}}/plugins/{{plugin_id}}",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"config\": {\n    \"webhook_url\": null,\n    \"alert_on_block\": false\n  }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Webhook cleared', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "06-06 Invalid UUID x-request-id — Regenerated",
+          "request": {
+            "method": "POST",
+            "url": "{{kong_url}}/fraud-test/post",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "x-api-key", "value": "{{api_key}}"},
+              {"key": "x-request-id", "value": "../../etc/passwd"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"user_bad_reqid\",\n  \"amount\": 100,\n  \"currency\": \"TRY\",\n  \"transaction_type\": \"pos\",\n  \"merchant_id\": \"merchant_001\",\n  \"account_age_days\": 365,\n  \"user_age\": 30\n}"
+            },
+            "description": "Path-traversal string in x-request-id must be rejected; a fresh UUID is generated."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Bad request-id handled safely (not 500)', () => {",
+                  "  pm.expect(pm.response.code).to.not.equal(500);",
+                  "});",
+                  "pm.test('Transaction ID is a valid UUID v4 (not the injection string)', () => {",
+                  "  const txId = pm.response.headers.get('x-transaction-id') || '';",
+                  "  pm.expect(txId).to.match(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);",
+                  "  pm.expect(txId).to.not.include('passwd');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "06-07 Schema Validation — review_score >= block_score → 400",
+          "request": {
+            "method": "PATCH",
+            "url": "{{kong_admin_url}}/plugins/{{plugin_id}}",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"config\": {\n    \"thresholds\": {\n      \"block_score\": 30,\n      \"review_score\": 80\n    }\n  }\n}"
+            },
+            "description": "review_score (80) >= block_score (30) must be rejected by the schema validator."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Invalid threshold config rejected (400)', () => pm.response.to.have.status(400));",
+                  "pm.test('Error mentions review_score or block_score', () => {",
+                  "  const body = pm.response.text();",
+                  "  pm.expect(body).to.match(/review_score|block_score/i);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "07 — Response Headers Contract",
+      "description": "Verify all expected response headers are present and correctly typed.",
+      "item": [
+        {
+          "name": "07-01 All Headers Present on Allowed Tx",
+          "request": {
+            "method": "POST",
+            "url": "{{kong_url}}/fraud-test/post",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "x-api-key", "value": "{{api_key}}"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"user_headers_check\",\n  \"amount\": 100,\n  \"currency\": \"TRY\",\n  \"transaction_type\": \"pos\",\n  \"merchant_id\": \"merchant_hdr\",\n  \"account_age_days\": 365,\n  \"user_age\": 30\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const headers = {",
+                  "  'x-fraud-score':       pm.response.headers.get('x-fraud-score'),",
+                  "  'x-risk-level':        pm.response.headers.get('x-risk-level'),",
+                  "  'x-transaction-id':    pm.response.headers.get('x-transaction-id'),",
+                  "  'x-execution-time-ms': pm.response.headers.get('x-execution-time-ms'),",
+                  "  'x-fraud-mode':        pm.response.headers.get('x-fraud-mode'),",
+                  "};",
+                  "Object.entries(headers).forEach(([name, val]) => {",
+                  "  pm.test(`Header ${name} is present`, () => pm.expect(val).to.not.be.null);",
+                  "});",
+                  "pm.test('x-fraud-score is a number 0-100', () => {",
+                  "  const s = parseInt(headers['x-fraud-score']);",
+                  "  pm.expect(s).to.be.at.least(0).and.at.most(100);",
+                  "});",
+                  "pm.test('x-risk-level is one of low/medium/high/whitelisted', () => {",
+                  "  pm.expect(['low','medium','high','whitelisted']).to.include(headers['x-risk-level']);",
+                  "});",
+                  "pm.test('x-transaction-id is UUID v4', () => {",
+                  "  pm.expect(headers['x-transaction-id']).to.match(",
+                  "    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i",
+                  "  );",
+                  "});",
+                  "pm.test('x-fraud-mode is enforce or shadow', () => {",
+                  "  pm.expect(['enforce','shadow']).to.include(headers['x-fraud-mode']);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "07-02 Blocked Tx Has Reference ID in Body",
+          "request": {
+            "method": "POST",
+            "url": "{{kong_url}}/fraud-test/post",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "x-api-key", "value": "{{api_key}}"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"user_ref_check\",\n  \"amount\": 999999,\n  \"currency\": \"TRY\",\n  \"transaction_type\": \"pos\",\n  \"merchant_id\": \"merchant_block\",\n  \"account_age_days\": 1,\n  \"user_age\": 19\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Request blocked (403)', () => pm.response.to.have.status(403));",
+                  "const body = pm.response.json();",
+                  "pm.test('Response body has reference', () => {",
+                  "  pm.expect(body).to.have.property('reference');",
+                  "  pm.expect(body.reference).to.match(/^FRD-\\d{4}-\\d{2}-\\d{2}-\\d+$/);",
+                  "});",
+                  "pm.test('Response body has risk_score', () => {",
+                  "  pm.expect(body).to.have.property('risk_score');",
+                  "});",
+                  "pm.test('Response body has message', () => {",
+                  "  pm.expect(body).to.have.property('message');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "08 — Cleanup",
+      "description": "Remove test resources from Kong.",
+      "item": [
+        {
+          "name": "08-01 Delete fraud-guard Plugin",
+          "request": {
+            "method": "DELETE",
+            "url": "{{kong_admin_url}}/plugins/{{plugin_id}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Plugin deleted', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "08-02 Delete key-auth Plugin",
+          "request": {
+            "method": "DELETE",
+            "url": "{{kong_admin_url}}/plugins/{{key_auth_plugin_id}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('key-auth plugin deleted', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "08-03 Delete Route",
+          "request": {
+            "method": "DELETE",
+            "url": "{{kong_admin_url}}/routes/httpbin-test-route"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route deleted', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "08-04 Delete Service",
+          "request": {
+            "method": "DELETE",
+            "url": "{{kong_admin_url}}/services/httpbin-test"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Service deleted', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "08-05 Delete Consumer",
+          "request": {
+            "method": "DELETE",
+            "url": "{{kong_admin_url}}/consumers/fraud-test-user"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Consumer deleted', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

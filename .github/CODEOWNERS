@@ -1,0 +1,9 @@
+# CODEOWNERS - Define code ownership for pull request reviews
+#
+# Branch protection strategy:
+# - main: protected, pushes only via pull requests (builds Docker image)
+# - dev: protected, only @recepbaykara can push and approve PRs
+# - other branches: open for public contributions
+#
+# The repository owner must review and approve all pull requests.
+* @recepbaykara
