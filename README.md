@@ -1,9 +1,8 @@
 # Fraud Guard — Kong Gateway Plugin
 
-[![Version](https://img.shields.io/badge/version-1.0.1-blue.svg)](VERSION)
-[![Kong](https://img.shields.io/badge/Kong-3.13-green.svg)](https://konghq.com/)
+[![Version](https://img.shields.io/badge/version-1.0.3-blue.svg)](VERSION)
+[![Kong](https://img.shields.io/badge/Kong-3.13.0.x-green.svg)](https://konghq.com/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Compliance](https://img.shields.io/badge/BDDK-Kasım%202025-orange.svg)]()
 
 Real-time fraud detection plugin for Kong Gateway. Implements 77 risk detection rules aligned with BDDK (Bankacılık Düzenleme ve Denetleme Kurumu) circular requirements. Runs entirely inside the Kong data plane — no external scoring service required.
 
@@ -194,7 +193,7 @@ Full enforcement with fail-closed safety (Redis downtime → block all).
 
 | Component | Version |
 |---|---|
-| Kong Gateway | 3.13 |
+| Kong Gateway | 3.13.0.x |
 | Redis | 5.0+ |
 | Lua | 5.1 (OpenResty, bundled with Kong) |
 | `lua-resty-jit-uuid` | latest |
