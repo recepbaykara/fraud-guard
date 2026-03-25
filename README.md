@@ -1,6 +1,6 @@
 # Fraud Guard — Kong Gateway Plugin
 
-[![Version](https://img.shields.io/badge/version-1.0.3-blue.svg)](VERSION)
+[![Version](https://img.shields.io/badge/version-1.0.4-blue.svg)](VERSION)
 [![Kong](https://img.shields.io/badge/Kong-3.13.0.x-green.svg)](https://konghq.com/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
